@@ -1,4 +1,5 @@
 import AVFoundation
+import AudioToolbox
 import CoreAudio
 import Foundation
 import Observation
@@ -35,7 +36,9 @@ final class AudioPlayerEngine {
     private var scheduleGeneration = 0
     private var completedInGeneration = 0
     private var scheduledCount = 0
-    private var configurationChangeObserver: NSObjectProtocol?
+    // @ObservationIgnored keeps this a genuinely stored property so the
+    // nonisolated deinit may access it.
+    @ObservationIgnored private var configurationChangeObserver: NSObjectProtocol?
 
     private(set) var state: PlaybackState = .stopped
     private(set) var duration: TimeInterval = 0
@@ -173,10 +176,17 @@ final class AudioPlayerEngine {
         let wasPlaying = state == .playing
         let frame = currentFrame()
 
-        if wasPlaying {
-            for player in players.values { player.stop() }
-        }
+        // Invalidate pending segment completions BEFORE stopping the players,
+        // otherwise they'd count as "track finished" and reset the position.
+        scheduleGeneration += 1
+        for player in players.values { player.stop() }
         engine.stop()
+        // If anything below throws, we're consistently paused at `frame`
+        // instead of claiming to be playing on a dead engine.
+        if wasPlaying {
+            state = .paused
+        }
+        pausedAtFrame = frame
 
         guard let audioUnit = engine.outputNode.audioUnit else {
             throw AppError.playbackFailed("The audio output is unavailable.")
@@ -196,8 +206,6 @@ final class AudioPlayerEngine {
         engine.prepare()
         if wasPlaying {
             startAll(fromFrame: frame)
-        } else {
-            pausedAtFrame = frame
         }
     }
 
@@ -279,7 +287,9 @@ final class AudioPlayerEngine {
                   let playerTime = player.playerTime(forNodeTime: nodeTime) else {
                 return anchorFrame
             }
-            let frame = anchorFrame + playerTime.sampleTime
+            // sampleTime is negative during the ~120 ms pre-roll before the
+            // common start tick; never report a position before the anchor.
+            let frame = anchorFrame + max(0, playerTime.sampleTime)
             let maxFrame = AVAudioFramePosition(duration * sampleRate)
             return max(0, min(frame, maxFrame))
         }
@@ -289,6 +299,7 @@ final class AudioPlayerEngine {
         guard hasTracks else { return }
         let wasPlaying = state == .playing
         let frame = currentFrame()
+        scheduleGeneration += 1
         for player in players.values { player.stop() }
         engine.stop()
         engine.prepare()

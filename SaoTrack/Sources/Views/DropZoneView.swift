@@ -1,6 +1,7 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
+@MainActor
 struct DropZoneView: View {
     @Environment(AppState.self) private var appState
     @State private var isTargeted = false

@@ -113,7 +113,10 @@ struct MediaImporter {
             commonFormat: .pcmFormatFloat32,
             interleaved: true)
 
-        try await Task.detached(priority: .userInitiated) {
+        // This method is nonisolated async, so the loop already runs off the
+        // main actor on the caller's task — cancellation from the UI's
+        // Cancel button propagates straight into checkCancellation().
+        do {
             while let sampleBuffer = output.copyNextSampleBuffer() {
                 try Task.checkCancellation()
                 guard let blockBuffer = CMSampleBufferGetDataBuffer(sampleBuffer) else { continue }
@@ -126,13 +129,19 @@ struct MediaImporter {
                 let status = CMBlockBufferCopyDataBytes(
                     blockBuffer, atOffset: 0, dataLength: byteCount,
                     destination: channelData[0])
-                guard status == kCMBlockBufferNoErr else { continue }
+                guard status == kCMBlockBufferNoErr else {
+                    // A silent skip would produce a shortened/gappy WAV.
+                    throw AppError.importFailed("Audio decode error (\(status)).")
+                }
                 try outFile.write(from: pcmBuffer)
             }
-            if reader.status == .failed {
-                throw AppError.importFailed(reader.error?.localizedDescription ?? "Decoding failed.")
-            }
-        }.value
+        } catch {
+            reader.cancelReading()
+            throw error
+        }
+        if reader.status == .failed {
+            throw AppError.importFailed(reader.error?.localizedDescription ?? "Decoding failed.")
+        }
     }
 
     // MARK: - ffmpeg path (MKV / WEBM)

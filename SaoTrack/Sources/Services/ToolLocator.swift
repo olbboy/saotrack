@@ -10,7 +10,7 @@ final class ToolLocator {
 
     // MARK: - Well-known locations
 
-    static let searchDirectories: [String] = [
+    nonisolated static let searchDirectories: [String] = [
         managedVenvBinDirectory.path,
         "/opt/homebrew/bin",
         "/usr/local/bin",
@@ -18,30 +18,30 @@ final class ToolLocator {
         "/usr/bin",
     ]
 
-    static var appSupportDirectory: URL {
+    nonisolated static var appSupportDirectory: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("SaoTrack", isDirectory: true)
     }
 
-    static var managedVenvDirectory: URL {
+    nonisolated static var managedVenvDirectory: URL {
         appSupportDirectory.appendingPathComponent("venv", isDirectory: true)
     }
 
-    static var managedVenvBinDirectory: URL {
+    nonisolated static var managedVenvBinDirectory: URL {
         managedVenvDirectory.appendingPathComponent("bin", isDirectory: true)
     }
 
     /// Torch model cache kept app-local so "model already downloaded" is
     /// detectable and uninstalling is a single folder delete.
-    static var torchHomeDirectory: URL {
+    nonisolated static var torchHomeDirectory: URL {
         appSupportDirectory.appendingPathComponent("torch", isDirectory: true)
     }
 
-    static var sessionsDirectory: URL {
+    nonisolated static var sessionsDirectory: URL {
         appSupportDirectory.appendingPathComponent("sessions", isDirectory: true)
     }
 
-    static var downloadsDirectory: URL {
+    nonisolated static var downloadsDirectory: URL {
         appSupportDirectory.appendingPathComponent("downloads", isDirectory: true)
     }
 
@@ -76,8 +76,23 @@ final class ToolLocator {
 
     // MARK: - Discovery
 
+    @ObservationIgnored private var refreshTask: Task<Void, Never>?
+
+    /// Coalesces concurrent callers: a refresh triggered while one is
+    /// already running awaits the in-flight result instead of returning
+    /// early with stale/empty state.
     func refresh() async {
-        guard !isRefreshing else { return }
+        if let refreshTask {
+            await refreshTask.value
+            return
+        }
+        let task = Task { await performRefresh() }
+        refreshTask = task
+        await task.value
+        refreshTask = nil
+    }
+
+    private func performRefresh() async {
         isRefreshing = true
         defer { isRefreshing = false }
 

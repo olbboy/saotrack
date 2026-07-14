@@ -1,6 +1,7 @@
 import SwiftUI
 
 /// Toolbar menu: format choice + "Export Mix" / "Export All Stems".
+@MainActor
 struct ExportMenuView: View {
     @Environment(AppState.self) private var appState
 

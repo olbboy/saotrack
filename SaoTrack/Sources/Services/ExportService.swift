@@ -39,8 +39,8 @@ actor ExportService {
                           to: destination, progress: progress)
         case .mp3_320:
             let ffmpeg = try requireFFmpeg(tools)
-            let tempWav = destination.deletingLastPathComponent()
-                .appendingPathComponent(".saotrack-mix-\(UUID().uuidString).wav")
+            let tempWav = FileManager.default.temporaryDirectory
+                .appendingPathComponent("saotrack-mix-\(UUID().uuidString).wav")
             defer { try? FileManager.default.removeItem(at: tempWav) }
             try renderMix(inputs: audible, masterVolume: masterVolume, to: tempWav) { fraction in
                 progress(fraction * 0.9)
@@ -99,6 +99,7 @@ actor ExportService {
             throw AppError.exportFailed("Could not allocate the render buffer.")
         }
 
+        var consecutiveStalls = 0
         while engine.manualRenderingSampleTime < totalFrames {
             try Task.checkCancellation()
             let remaining = totalFrames - engine.manualRenderingSampleTime
@@ -107,9 +108,14 @@ actor ExportService {
             let status = try engine.renderOffline(framesToRender, to: renderBuffer)
             switch status {
             case .success:
+                consecutiveStalls = 0
                 try outFile.write(from: renderBuffer)
                 progress(Double(engine.manualRenderingSampleTime) / Double(totalFrames))
             case .insufficientDataFromInputNode, .cannotDoInCurrentContext:
+                consecutiveStalls += 1
+                guard consecutiveStalls < 64 else {
+                    throw AppError.exportFailed("Offline rendering stalled.")
+                }
                 continue
             case .error:
                 throw AppError.exportFailed("Offline rendering failed.")

@@ -3,6 +3,7 @@ import SwiftUI
 
 /// Player transport: play/pause/stop, seek, time labels, master volume,
 /// plus the "Separate Tracks", "Detect Key & BPM", and auto-separate controls.
+@MainActor
 struct TransportBarView: View {
     @Environment(AppState.self) private var appState
 

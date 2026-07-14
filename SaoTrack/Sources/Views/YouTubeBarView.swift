@@ -1,5 +1,6 @@
 import SwiftUI
 
+@MainActor
 struct YouTubeBarView: View {
     @Environment(AppState.self) private var appState
     @State private var urlString = ""
@@ -11,9 +12,9 @@ struct YouTubeBarView: View {
             HStack(spacing: 8) {
                 TextField("YouTube URL...", text: $urlString)
                     .textFieldStyle(.roundedBorder)
-                    .onSubmit(download)
+                    .onSubmit { download() }
 
-                Button("Download & Load", action: download)
+                Button("Download & Load") { download() }
                     .keyboardShortcut(.defaultAction)
                     .disabled(!ytDlpAvailable || urlString.trimmingCharacters(in: .whitespaces).isEmpty)
             }

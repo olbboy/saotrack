@@ -56,7 +56,12 @@ final class AppState {
     private let analysisService = AnalysisService()
 
     private var currentJob: Task<Void, Never>?
+    /// Identity of the newest job. Superseded jobs compare their captured
+    /// token against this before touching phase/error state, so a stale
+    /// job unwinding after cancellation can't clobber the active one.
+    private var currentJobToken = UUID()
     private var analysisJob: Task<Void, Never>?
+    private var analysisToken = UUID()
     private var lastStablePhase: Phase = .empty
 
     init() {
@@ -80,40 +85,52 @@ final class AppState {
     }
 
     func loadFile(_ url: URL) {
-        startJob { [self] in
+        guard !phase.isBusy else { return }
+        startJob { [self] token in
             setPhase(.importing("Loading \(url.lastPathComponent)…"))
             do {
                 let loaded = try await importer.importMedia(from: url, tools: toolLocator.toolSet) { status in
                     Task { @MainActor in
-                        if case .importing = self.phase { self.setPhase(.importing(status)) }
+                        if self.isCurrentJob(token), case .importing = self.phase {
+                            self.setPhase(.importing(status))
+                        }
                     }
                 }
+                try Task.checkCancellation()
+                guard isCurrentJob(token) else { return }
                 try applyLoadedMedia(loaded)
             } catch is CancellationError {
-                revertToStablePhase()
+                if isCurrentJob(token) { revertToStablePhase() }
             } catch {
-                fail(AppError.from(error) { .importFailed($0) })
+                if isCurrentJob(token) { fail(AppError.from(error) { .importFailed($0) }) }
             }
         }
     }
 
     func downloadFromYouTube(_ urlString: String) {
-        startJob { [self] in
+        guard !phase.isBusy else { return }
+        startJob { [self] token in
             setPhase(.downloading(0))
             do {
                 let downloaded = try await youtubeService.download(
                     urlString: urlString, tools: toolLocator.toolSet) { fraction in
                     Task { @MainActor in
-                        if case .downloading = self.phase { self.setPhase(.downloading(fraction)) }
+                        if self.isCurrentJob(token), case .downloading = self.phase {
+                            self.setPhase(.downloading(fraction))
+                        }
                     }
                 }
+                try Task.checkCancellation()
+                guard isCurrentJob(token) else { return }
                 setPhase(.importing("Loading \(downloaded.lastPathComponent)…"))
                 let loaded = try await importer.importMedia(from: downloaded, tools: toolLocator.toolSet) { _ in }
+                try Task.checkCancellation()
+                guard isCurrentJob(token) else { return }
                 try applyLoadedMedia(loaded)
             } catch is CancellationError {
-                revertToStablePhase()
+                if isCurrentJob(token) { revertToStablePhase() }
             } catch {
-                fail(AppError.from(error) { .downloadFailed($0) })
+                if isCurrentJob(token) { fail(AppError.from(error) { .downloadFailed($0) }) }
             }
         }
     }
@@ -122,6 +139,8 @@ final class AppState {
         playerEngine.stop()
         analysis = nil
         analysisJob?.cancel()
+        analysisToken = UUID()
+        isAnalyzing = false
         media = loaded
 
         let originalTrack = StemTrack.original(url: loaded.playableWavURL, title: loaded.title)
@@ -137,9 +156,8 @@ final class AppState {
     // MARK: - Separation
 
     func separateStems() {
-        guard let media else { return }
-        guard !phase.isBusy || currentJobIsFinishing() else { return }
-        startJob { [self] in
+        guard let media, !phase.isBusy, !mixer.isSeparated else { return }
+        startJob { [self] token in
             playerEngine.pause()
             setPhase(.separating(StemSeparationService.Progress(stage: .separating(0))))
             do {
@@ -149,9 +167,13 @@ final class AppState {
                     tools: toolLocator.toolSet,
                     useGPU: useGPUForSeparation) { progressUpdate in
                     Task { @MainActor in
-                        if case .separating = self.phase { self.setPhase(.separating(progressUpdate)) }
+                        if self.isCurrentJob(token), case .separating = self.phase {
+                            self.setPhase(.separating(progressUpdate))
+                        }
                     }
                 }
+                try Task.checkCancellation()
+                guard isCurrentJob(token) else { return }
                 let stemTracks = StemKind.allCases.compactMap { kind in
                     stems[kind].map { StemTrack(kind: kind, name: kind.displayName, url: $0) }
                 }
@@ -159,9 +181,9 @@ final class AppState {
                 mixer.setTracks(stemTracks)
                 setPhase(.separated)
             } catch is CancellationError {
-                revertToStablePhase()
+                if isCurrentJob(token) { revertToStablePhase() }
             } catch {
-                fail(AppError.from(error) { .separationFailed($0) })
+                if isCurrentJob(token) { fail(AppError.from(error) { .separationFailed($0) }) }
             }
         }
     }
@@ -171,24 +193,28 @@ final class AppState {
     func detectKeyAndBPM() {
         guard let media, !isAnalyzing else { return }
         analysisJob?.cancel()
+        let token = UUID()
+        analysisToken = token
         isAnalyzing = true
         analysisJob = Task { [self] in
             do {
                 let result = try await analysisService.analyze(fileURL: media.playableWavURL)
-                analysis = result
+                if analysisToken == token { analysis = result }
             } catch is CancellationError {
                 // superseded by a new file — ignore
             } catch {
-                presentedError = AppError.from(error) { .analysisFailed($0) }
+                if analysisToken == token {
+                    presentedError = AppError.from(error) { .analysisFailed($0) }
+                }
             }
-            isAnalyzing = false
+            if analysisToken == token { isAnalyzing = false }
         }
     }
 
     // MARK: - Export
 
     func exportMix() {
-        guard media != nil else { return }
+        guard media != nil, !phase.isBusy else { return }
         let format = exportFormat
         let panel = NSSavePanel()
         panel.title = "Export Mix"
@@ -198,7 +224,7 @@ final class AppState {
 
         let inputs = mixer.mixInputs()
         let masterVolume = playerEngine.masterVolume
-        startJob { [self] in
+        startJob { [self] token in
             setPhase(.exporting("Exporting mix…", 0))
             do {
                 try await exportService.exportMix(
@@ -208,23 +234,24 @@ final class AppState {
                     to: destination,
                     tools: toolLocator.toolSet) { fraction in
                     Task { @MainActor in
-                        if case .exporting = self.phase {
+                        if self.isCurrentJob(token), case .exporting = self.phase {
                             self.setPhase(.exporting("Exporting mix…", fraction))
                         }
                     }
                 }
+                guard isCurrentJob(token) else { return }
                 revertToStablePhase()
                 NSWorkspace.shared.activateFileViewerSelecting([destination])
             } catch is CancellationError {
-                revertToStablePhase()
+                if isCurrentJob(token) { revertToStablePhase() }
             } catch {
-                fail(AppError.from(error) { .exportFailed($0) })
+                if isCurrentJob(token) { fail(AppError.from(error) { .exportFailed($0) }) }
             }
         }
     }
 
     func exportAllStems() {
-        guard mixer.isSeparated else { return }
+        guard mixer.isSeparated, !phase.isBusy else { return }
         let format = exportFormat
         let panel = NSOpenPanel()
         panel.title = "Export All Stems"
@@ -238,29 +265,31 @@ final class AppState {
         let stems: [(kind: StemKind, url: URL)] = mixer.tracks.compactMap { track in
             track.kind.map { (kind: $0, url: track.url) }
         }
-        startJob { [self] in
+        startJob { [self] token in
             setPhase(.exporting("Exporting stems…", 0))
             do {
                 try await exportService.exportAllStems(
                     stems: stems, format: format, to: directory,
                     tools: toolLocator.toolSet) { fraction in
                     Task { @MainActor in
-                        if case .exporting = self.phase {
+                        if self.isCurrentJob(token), case .exporting = self.phase {
                             self.setPhase(.exporting("Exporting stems…", fraction))
                         }
                     }
                 }
+                guard isCurrentJob(token) else { return }
                 revertToStablePhase()
                 NSWorkspace.shared.activateFileViewerSelecting([directory])
             } catch is CancellationError {
-                revertToStablePhase()
+                if isCurrentJob(token) { revertToStablePhase() }
             } catch {
-                fail(AppError.from(error) { .exportFailed($0) })
+                if isCurrentJob(token) { fail(AppError.from(error) { .exportFailed($0) }) }
             }
         }
     }
 
     func exportSingleStem(_ track: StemTrack) {
+        guard !phase.isBusy else { return }
         let format = exportFormat
         let panel = NSSavePanel()
         panel.title = "Export \(track.name)"
@@ -268,17 +297,18 @@ final class AppState {
         panel.canCreateDirectories = true
         guard panel.runModal() == .OK, let destination = panel.url else { return }
 
-        startJob { [self] in
+        startJob { [self] token in
             setPhase(.exporting("Exporting \(track.name)…", 0))
             do {
                 try await exportService.exportStem(
                     url: track.url, format: format, to: destination, tools: toolLocator.toolSet)
+                guard isCurrentJob(token) else { return }
                 revertToStablePhase()
                 NSWorkspace.shared.activateFileViewerSelecting([destination])
             } catch is CancellationError {
-                revertToStablePhase()
+                if isCurrentJob(token) { revertToStablePhase() }
             } catch {
-                fail(AppError.from(error) { .exportFailed($0) })
+                if isCurrentJob(token) { fail(AppError.from(error) { .exportFailed($0) }) }
             }
         }
     }
@@ -300,13 +330,18 @@ final class AppState {
         currentJob?.cancel()
     }
 
-    private func startJob(_ operation: @escaping @MainActor () async -> Void) {
+    /// Starts a new exclusive job. The closure receives a token identifying
+    /// this job; every phase/error mutation after an await must be guarded
+    /// with `isCurrentJob(token)`.
+    private func startJob(_ operation: @escaping @MainActor (_ token: UUID) async -> Void) {
         currentJob?.cancel()
-        currentJob = Task { await operation() }
+        let token = UUID()
+        currentJobToken = token
+        currentJob = Task { await operation(token) }
     }
 
-    private func currentJobIsFinishing() -> Bool {
-        currentJob?.isCancelled ?? true
+    private func isCurrentJob(_ token: UUID) -> Bool {
+        currentJobToken == token
     }
 
     private func setPhase(_ newPhase: Phase) {

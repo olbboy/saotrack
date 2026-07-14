@@ -135,6 +135,9 @@ enum ProcessRunner {
             case .exit(let code): exitCode = code
             }
         }
+        // A cancelled consumer ends the stream without the .exit element;
+        // surface that as cancellation, not as a bogus non-zero exit.
+        try Task.checkCancellation()
 
         let result = RunResult(
             exitCode: exitCode,

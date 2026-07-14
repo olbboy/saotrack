@@ -1,6 +1,7 @@
 import SwiftUI
 
 /// One mixer channel strip: stem name, mute/solo, volume, export.
+@MainActor
 struct TrackStripView: View {
     @Environment(AppState.self) private var appState
     let track: StemTrack

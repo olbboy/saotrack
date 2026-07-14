@@ -2,6 +2,7 @@ import SwiftUI
 
 /// The multi-track mixer: one strip per stem after separation, or a hint
 /// card before it.
+@MainActor
 struct MixerView: View {
     @Environment(AppState.self) private var appState
 

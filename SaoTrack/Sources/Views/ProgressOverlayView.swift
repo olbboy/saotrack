@@ -2,6 +2,7 @@ import SwiftUI
 
 /// Modal-style overlay shown while a long job (import, download,
 /// separation, export) runs, with a Cancel button.
+@MainActor
 struct ProgressOverlayView: View {
     @Environment(AppState.self) private var appState
 

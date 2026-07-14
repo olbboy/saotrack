@@ -66,6 +66,9 @@ actor YouTubeService {
                 exitCode = code
             }
         }
+        // Cancellation ends the stream before .exit arrives — don't turn
+        // that into a "download failed" alert.
+        try Task.checkCancellation()
 
         guard exitCode == 0 else {
             throw AppError.downloadFailed(stderrTail.suffix(4).joined(separator: "\n"))

@@ -17,29 +17,30 @@ struct AnalysisService {
     /// intros/outros that skew both tempo and key.
     static let maxAnalysisSeconds: Double = 90
 
+    /// Nonisolated async: runs off the main actor on the caller's task, so
+    /// cancelling the owning task genuinely aborts the analysis.
     func analyze(fileURL: URL) async throws -> MusicalAnalysis {
-        try await Task.detached(priority: .userInitiated) {
-            let samples = try Self.decodeMonoSamples(
-                url: fileURL,
-                targetRate: Self.analysisSampleRate,
-                maxSeconds: Self.maxAnalysisSeconds)
-            guard samples.count >= Self.fftSize * 4 else {
-                throw AppError.analysisFailed("The file is too short to analyze.")
-            }
+        let samples = try Self.decodeMonoSamples(
+            url: fileURL,
+            targetRate: Self.analysisSampleRate,
+            maxSeconds: Self.maxAnalysisSeconds)
+        guard samples.count >= Self.fftSize * 4 else {
+            throw AppError.analysisFailed("The file is too short to analyze.")
+        }
+        try Task.checkCancellation()
 
-            let spectra = Self.stftMagnitudes(samples)
-            try Task.checkCancellation()
+        let spectra = Self.stftMagnitudes(samples)
+        try Task.checkCancellation()
 
-            let frameRate = Self.analysisSampleRate / Double(Self.hopSize)
-            let envelope = Self.onsetEnvelope(spectra)
-            let bpm = Self.estimateBPM(envelope, frameRate: frameRate)
-            try Task.checkCancellation()
+        let frameRate = Self.analysisSampleRate / Double(Self.hopSize)
+        let envelope = Self.onsetEnvelope(spectra)
+        let bpm = Self.estimateBPM(envelope, frameRate: frameRate)
+        try Task.checkCancellation()
 
-            let chroma = Self.chromagram(spectra, sampleRate: Self.analysisSampleRate)
-            let key = Self.estimateKey(chroma)
+        let chroma = Self.chromagram(spectra, sampleRate: Self.analysisSampleRate)
+        let key = Self.estimateKey(chroma)
 
-            return MusicalAnalysis(keyName: key.name, keyConfidence: key.confidence, bpm: bpm)
-        }.value
+        return MusicalAnalysis(keyName: key.name, keyConfidence: key.confidence, bpm: bpm)
     }
 
     // MARK: - Decoding

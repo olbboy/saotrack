@@ -3,6 +3,7 @@ import SwiftUI
 
 /// External-tool status and guided install: ffmpeg, yt-dlp, and Demucs,
 /// plus the app-managed Python environment option and the GPU toggle.
+@MainActor
 struct SetupView: View {
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss

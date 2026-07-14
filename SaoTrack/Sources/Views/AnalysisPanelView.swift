@@ -1,6 +1,7 @@
 import SwiftUI
 
 /// "Musical Analysis" — the KEY and BPM result boxes.
+@MainActor
 struct AnalysisPanelView: View {
     @Environment(AppState.self) private var appState
 
