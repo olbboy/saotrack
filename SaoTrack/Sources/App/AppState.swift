@@ -267,23 +267,37 @@ final class AppState {
 
     // MARK: - Export
 
-    func exportMix() {
+    /// Renders the current mix exactly as heard: gains, pans, master
+    /// volume, and live pitch/speed. `loopRegionOnly` restricts the render
+    /// to the A–B loop region.
+    func exportMix(loopRegionOnly: Bool = false) {
         guard media != nil, !phase.isBusy else { return }
+        var settings = ExportService.MixSettings(
+            masterVolume: playerEngine.masterVolume,
+            pitchSemitones: playerEngine.pitchSemitones,
+            playbackRate: playerEngine.playbackRate,
+            timeRange: nil)
+        if loopRegionOnly {
+            guard let start = playerEngine.loopStart, let end = playerEngine.loopEnd,
+                  end > start else { return }
+            settings.timeRange = start...end
+        }
+
         let format = exportFormat
         let panel = NSSavePanel()
-        panel.title = "Export Mix"
-        panel.nameFieldStringValue = "\(media?.title ?? "mix") (Mix).\(format.fileExtension)"
+        panel.title = loopRegionOnly ? "Export Loop Region" : "Export Mix"
+        panel.nameFieldStringValue =
+            "\(media?.title ?? "mix")\(mixFileSuffix(settings: settings, loop: loopRegionOnly)).\(format.fileExtension)"
         panel.canCreateDirectories = true
         guard panel.runModal() == .OK, let destination = panel.url else { return }
 
         let inputs = mixer.mixInputs()
-        let masterVolume = playerEngine.masterVolume
         startJob { [self] token in
             setPhase(.exporting("Exporting mix…", 0))
             do {
                 try await exportService.exportMix(
                     inputs: inputs,
-                    masterVolume: masterVolume,
+                    settings: settings,
                     format: format,
                     to: destination,
                     tools: toolLocator.toolSet) { fraction in
@@ -302,6 +316,19 @@ final class AppState {
                 if isCurrentJob(token) { fail(AppError.from(error) { .exportFailed($0) }) }
             }
         }
+    }
+
+    /// Suggested filename tail, e.g. " (Loop Mix +2st 0.90x)".
+    private func mixFileSuffix(settings: ExportService.MixSettings, loop: Bool) -> String {
+        var parts: [String] = [loop ? "Loop Mix" : "Mix"]
+        if settings.pitchSemitones != 0 {
+            let value = Int(settings.pitchSemitones)
+            parts.append(value > 0 ? "+\(value)st" : "\(value)st")
+        }
+        if abs(settings.playbackRate - 1) > 0.001 {
+            parts.append(String(format: "%.2fx", settings.playbackRate))
+        }
+        return " (\(parts.joined(separator: " ")))"
     }
 
     func exportAllStems() {

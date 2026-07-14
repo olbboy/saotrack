@@ -62,6 +62,20 @@ final class AudioPlayerEngine {
     private(set) var loopEnd: TimeInterval?
     var isLoopEnabled = false
 
+    // MARK: - Speed trainer
+
+    /// When enabled with an active loop, every completed pass raises the
+    /// playback rate by `trainerStepPercent` until it reaches 100% — start
+    /// slow, finish at full speed.
+    var trainerEnabled = false
+    var trainerStepPercent = 2
+
+    private func advanceTrainerIfNeeded() {
+        guard trainerEnabled, playbackRate < 0.999 else { return }
+        let next = playbackRate + Float(trainerStepPercent) / 100
+        playbackRate = min(1.0, (next * 100).rounded() / 100)
+    }
+
     var hasLoopRegion: Bool {
         if let start = loopStart, let end = loopEnd, end > start { return true }
         return false
@@ -130,6 +144,7 @@ final class AudioPlayerEngine {
         clearLoop()
         pitchSemitones = 0
         playbackRate = 1.0
+        trainerEnabled = false
 
         var chainSampleRate: Double = 44100
         for track in tracks {
@@ -377,6 +392,7 @@ final class AudioPlayerEngine {
         guard completedInGeneration >= scheduledCount else { return }
         // Loop-to-end regions restart instead of stopping.
         if isLoopEnabled, hasLoopRegion, let start = loopStart {
+            advanceTrainerIfNeeded()
             startAll(fromFrame: AVAudioFramePosition(start * sampleRate))
             return
         }
@@ -440,6 +456,7 @@ final class AudioPlayerEngine {
         guard state == .playing, isLoopEnabled,
               let start = loopStart, let end = loopEnd, end > start else { return }
         if currentTime >= end {
+            advanceTrainerIfNeeded()
             startAll(fromFrame: AVAudioFramePosition(start * sampleRate))
         }
     }

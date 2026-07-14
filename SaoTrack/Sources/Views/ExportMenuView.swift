@@ -30,10 +30,19 @@ struct ExportMenuView: View {
             }
             .disabled(exportDisabled)
 
+            Button("Export Loop Region (A–B)") {
+                appState.exportMix(loopRegionOnly: true)
+            }
+            .disabled(exportDisabled || !appState.playerEngine.hasLoopRegion)
+
             Button("Export All Stems") {
                 appState.exportAllStems()
             }
             .disabled(exportDisabled || !appState.mixer.isSeparated)
+
+            if pitchOrSpeedActive {
+                Text("Mix exports include the current pitch & speed")
+            }
         } label: {
             Label("Export", systemImage: "square.and.arrow.up")
         }
@@ -44,5 +53,10 @@ struct ExportMenuView: View {
         appState.media == nil
             || appState.phase.isBusy
             || (appState.exportFormat.requiresFFmpeg && !ffmpegAvailable)
+    }
+
+    private var pitchOrSpeedActive: Bool {
+        appState.playerEngine.pitchSemitones != 0
+            || abs(appState.playerEngine.playbackRate - 1) > 0.001
     }
 }

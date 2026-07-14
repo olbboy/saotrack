@@ -60,6 +60,13 @@ struct SaoTrackApp: App {
             .keyboardShortcut("e")
             .disabled(appState.media == nil || appState.phase.isBusy)
 
+            Button("Export Loop Region…") {
+                appState.exportMix(loopRegionOnly: true)
+            }
+            .keyboardShortcut("e", modifiers: [.command, .option])
+            .disabled(appState.media == nil || appState.phase.isBusy
+                      || !appState.playerEngine.hasLoopRegion)
+
             Button("Export All Stems…") {
                 appState.exportAllStems()
             }

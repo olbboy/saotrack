@@ -33,9 +33,12 @@ drum/bass extraction, remixing, mashup prep, and beat-synced video editing.
   ±5 s skip, time display, master volume, output device picker.
 - **A–B loop**: set start/end markers at the playhead and repeat a section —
   ideal for practicing a solo or transcribing a riff (⌘[ / ⌘] / ⌘L).
+  A built-in **speed trainer** can raise the tempo a little on every loop
+  pass (+1/2/5%) until it reaches 100% — start slow, finish at full speed.
 - **Pitch & speed**: live transpose ±12 semitones and playback speed
-  0.5×–1.5× without stopping playback (playback only; exports keep the
-  original pitch and tempo).
+  0.5×–1.5× without stopping playback. When a transpose is active, the
+  Musical Analysis panel shows the key you are actually hearing
+  (e.g. A Minor → **B Minor** at +2).
 - **Menu bar & shortcuts**: Open ⌘O, Open Recent, Export Mix ⌘E, Export All
   Stems ⇧⌘E, Separate ⌘D, Detect Key & BPM ⌘K, full Playback menu
   (Space, ⌘., ⇧⌘←/→).
@@ -44,10 +47,13 @@ drum/bass extraction, remixing, mashup prep, and beat-synced video editing.
   octave-error correction. Results are estimates; live recordings, rubato,
   long intros, or key changes reduce accuracy, and BPM can occasionally fold
   to half/double the true tempo.
-- **Export**: *Export Mix* (renders the current mix offline, respecting
-  volumes/mutes/solos) and *Export All Stems* (`vocals.wav`, `drums.wav`,
-  `bass.wav`, `piano.wav`, `other.wav`), each as WAV 16-bit/44.1 kHz or
-  MP3 320 kbps.
+- **Export — what you hear is what you get**: *Export Mix* renders the
+  current mix offline with everything you set live — volumes, mutes/solos,
+  pans, master volume, **and the active pitch & speed** (change the karaoke
+  key, export, done). *Export Loop Region (A–B)* renders just the loop
+  section. *Export All Stems* writes each stem untouched (`vocals.wav`,
+  `drums.wav`, …) for DAW/video-editor handoff. Every export is WAV
+  16-bit/44.1 kHz or MP3 320 kbps.
 
 ## Requirements
 
