@@ -40,7 +40,7 @@ struct PitchSpeedControlView: View {
             }
             rangeCaption(low: "0.5×", high: "1.5×")
 
-            Text("Applies to live playback only — exports keep the original pitch and tempo.")
+            Text("Mix exports render with these settings; stem exports stay untouched.")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
         }

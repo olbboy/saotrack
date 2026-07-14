@@ -94,9 +94,12 @@ final class MixerViewModel {
         return track.isMuted ? 0 : track.volume
     }
 
-    /// Inputs for the offline mix render, one per track with its live gain.
+    /// Inputs for the offline mix render, one per track with its live
+    /// gain and pan — the render must match what the user hears.
     func mixInputs() -> [ExportService.MixInput] {
-        tracks.map { ExportService.MixInput(url: $0.url, gain: effectiveGain(for: $0)) }
+        tracks.map {
+            ExportService.MixInput(url: $0.url, gain: effectiveGain(for: $0), pan: $0.pan)
+        }
     }
 
     private func applyGains() {

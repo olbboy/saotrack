@@ -221,9 +221,39 @@ struct TransportBarView: View {
                 .buttonStyle(.borderless)
                 .help("Clear the loop")
             }
+
+            if engine.hasLoopRegion {
+                speedTrainerMenu
+            }
         }
         .font(.caption.bold())
         .controlSize(.small)
+    }
+
+    /// Practice helper: raises the playback speed a little on every loop
+    /// pass until it reaches 100%.
+    private var speedTrainerMenu: some View {
+        Menu {
+            Toggle("Speed Trainer", isOn: Binding(
+                get: { engine.trainerEnabled },
+                set: { engine.trainerEnabled = $0 }))
+            Picker("Step per loop", selection: Binding(
+                get: { engine.trainerStepPercent },
+                set: { engine.trainerStepPercent = $0 })
+            ) {
+                Text("+1%").tag(1)
+                Text("+2%").tag(2)
+                Text("+5%").tag(5)
+            }
+            Divider()
+            Text("Set a slower speed first; each loop pass speeds up until 100%.")
+        } label: {
+            Image(systemName: engine.trainerEnabled ? "hare.fill" : "hare")
+                .foregroundStyle(engine.trainerEnabled ? Color.accentColor : Color.secondary)
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .help("Speed trainer: gradually speed up the loop until full tempo")
     }
 
     private var loopRangeLabel: String {
