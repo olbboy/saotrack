@@ -10,8 +10,18 @@ struct MixerView: View {
         Group {
             if appState.mixer.isSeparated {
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("Mixer")
-                        .font(.headline)
+                    HStack {
+                        Text("Mixer")
+                            .font(.headline)
+                        Spacer()
+                        Button("Karaoke") { appState.mixer.applyKaraokePreset() }
+                            .help("Mute the vocals, keep the band")
+                        Button("Acapella") { appState.mixer.applyAcapellaPreset() }
+                            .help("Solo the vocals")
+                        Button("Reset") { appState.mixer.resetMix() }
+                            .help("Full volume, center pan, no mute/solo")
+                    }
+                    .controlSize(.small)
                     HStack(alignment: .top, spacing: 12) {
                         ForEach(appState.mixer.tracks) { track in
                             TrackStripView(track: track)

@@ -33,10 +33,27 @@ final class AppState {
     private(set) var media: LoadedMedia?
     private(set) var analysis: MusicalAnalysis?
     private(set) var isAnalyzing = false
+    /// Downsampled peak envelope of the loaded file for the seek waveform;
+    /// nil while empty or still being generated.
+    private(set) var waveform: [Float]?
+    private(set) var recentFiles: [URL] = RecentFilesStore.load()
     var presentedError: AppError?
 
     var autoSeparate: Bool = UserDefaults.standard.bool(forKey: "autoSeparate") {
         didSet { UserDefaults.standard.set(autoSeparate, forKey: "autoSeparate") }
+    }
+    /// Separation mode picked in the transport bar; defaults to 5 stems.
+    var separationMode: SeparationMode = UserDefaults.standard.string(forKey: "separationMode")
+        .flatMap(SeparationMode.init(rawValue:)) ?? .fiveStems {
+        didSet { UserDefaults.standard.set(separationMode.rawValue, forKey: "separationMode") }
+    }
+    /// Mode of the stems currently in the mixer; nil before any separation.
+    private(set) var separatedMode: SeparationMode?
+
+    /// True when stems exist but the user has since picked a different mode,
+    /// so the "Separate" button reappears as a re-separate action.
+    var needsReseparation: Bool {
+        mixer.isSeparated && separatedMode != nil && separatedMode != separationMode
     }
     var useGPUForSeparation: Bool = UserDefaults.standard.bool(forKey: "useGPUForSeparation") {
         didSet { UserDefaults.standard.set(useGPUForSeparation, forKey: "useGPUForSeparation") }
@@ -62,6 +79,7 @@ final class AppState {
     private var currentJobToken = UUID()
     private var analysisJob: Task<Void, Never>?
     private var analysisToken = UUID()
+    private var waveformToken = UUID()
     private var lastStablePhase: Phase = .empty
 
     init() {
@@ -99,6 +117,7 @@ final class AppState {
                 try Task.checkCancellation()
                 guard isCurrentJob(token) else { return }
                 try applyLoadedMedia(loaded)
+                recordRecentFile(url)
             } catch is CancellationError {
                 if isCurrentJob(token) { revertToStablePhase() }
             } catch {
@@ -146,17 +165,50 @@ final class AppState {
         let originalTrack = StemTrack.original(url: loaded.playableWavURL, title: loaded.title)
         try playerEngine.load(tracks: [originalTrack])
         mixer.setTracks([originalTrack])
+        separatedMode = nil
         setPhase(.loaded)
+        generateWaveform(for: loaded.playableWavURL)
 
         if autoSeparate {
             separateStems()
         }
     }
 
+    private func generateWaveform(for url: URL) {
+        let token = UUID()
+        waveformToken = token
+        waveform = nil
+        Task.detached(priority: .userInitiated) {
+            let peaks = (try? WaveformGenerator.peaks(for: url)) ?? []
+            await MainActor.run {
+                guard self.waveformToken == token else { return }
+                self.waveform = peaks.isEmpty ? nil : peaks
+            }
+        }
+    }
+
+    // MARK: - Recent files
+
+    func clearRecentFiles() {
+        recentFiles = []
+        RecentFilesStore.save([])
+    }
+
+    private func recordRecentFile(_ url: URL) {
+        var list = recentFiles.filter { $0 != url }
+        list.insert(url, at: 0)
+        if list.count > RecentFilesStore.maxCount {
+            list = Array(list.prefix(RecentFilesStore.maxCount))
+        }
+        recentFiles = list
+        RecentFilesStore.save(list)
+    }
+
     // MARK: - Separation
 
     func separateStems() {
-        guard let media, !phase.isBusy, !mixer.isSeparated else { return }
+        guard let media, !phase.isBusy, !mixer.isSeparated || needsReseparation else { return }
+        let mode = separationMode
         startJob { [self] token in
             playerEngine.pause()
             setPhase(.separating(StemSeparationService.Progress(stage: .separating(0))))
@@ -165,7 +217,8 @@ final class AppState {
                     input: media.playableWavURL,
                     sessionDirectory: media.sessionDirectory,
                     tools: toolLocator.toolSet,
-                    useGPU: useGPUForSeparation) { progressUpdate in
+                    useGPU: useGPUForSeparation,
+                    mode: mode) { progressUpdate in
                     Task { @MainActor in
                         if self.isCurrentJob(token), case .separating = self.phase {
                             self.setPhase(.separating(progressUpdate))
@@ -174,11 +227,12 @@ final class AppState {
                 }
                 try Task.checkCancellation()
                 guard isCurrentJob(token) else { return }
-                let stemTracks = StemKind.allCases.compactMap { kind in
+                let stemTracks = mode.stemKinds.compactMap { kind in
                     stems[kind].map { StemTrack(kind: kind, name: kind.displayName, url: $0) }
                 }
                 try playerEngine.load(tracks: stemTracks)
                 mixer.setTracks(stemTracks)
+                separatedMode = mode
                 setPhase(.separated)
             } catch is CancellationError {
                 if isCurrentJob(token) { revertToStablePhase() }

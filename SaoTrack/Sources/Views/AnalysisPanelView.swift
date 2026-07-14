@@ -21,11 +21,19 @@ struct AnalysisPanelView: View {
 
             Spacer()
 
-            if appState.analysis == nil && !appState.isAnalyzing {
-                Text("Press “Detect Key & BPM” to analyze the song.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+            Button {
+                appState.detectKeyAndBPM()
+            } label: {
+                if appState.isAnalyzing {
+                    HStack(spacing: 6) {
+                        ProgressView().controlSize(.small)
+                        Text("Analyzing…")
+                    }
+                } else {
+                    Label("Detect Key & BPM", systemImage: "waveform.badge.magnifyingglass")
+                }
             }
+            .disabled(appState.isAnalyzing || appState.media == nil)
         }
         .padding(14)
         .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 12))

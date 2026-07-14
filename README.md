@@ -12,16 +12,33 @@ drum/bass extraction, remixing, mashup prep, and beat-synced video editing.
 ## Features
 
 - **Load local files**: MP3, WAV, M4A, AAC, FLAC audio and MP4, MOV, MKV,
-  WEBM video (the audio track is extracted). Drag & drop or file picker.
-- **YouTube import**: paste a link, press *Download & Load* (via yt-dlp).
+  WEBM video (the audio track is extracted). Drag & drop anywhere in the
+  window — even while another song is loaded — or use the file picker.
+- **YouTube import**: paste a link, press *Download & Load* (via yt-dlp) —
+  from the empty screen or the toolbar's YouTube button at any time.
   Only download content you own or have the rights to use.
-- **5-stem separation**: Demucs `htdemucs_6s`; the model's guitar stem is
-  summed into *Other* so you always get exactly Vocals / Drums / Bass /
-  Piano / Other. Optional *Automatically separate after loading*.
-- **Multi-track mixer**: per-stem volume, mute, solo, individual stem export;
-  all stems play in sample-accurate sync.
-- **Player**: play / pause / stop, seek bar, time display, master volume,
-  output device picker.
+- **Stem separation with selectable modes**:
+  - *2 Stems* — Vocals / Instrumental (Demucs `htdemucs`, two-stems mode)
+  - *4 Stems* — Vocals / Drums / Bass / Other (Demucs `htdemucs`)
+  - *5 Stems* (default) — Vocals / Drums / Bass / Piano / Other
+    (Demucs `htdemucs_6s`; the model's guitar stem is summed into *Other*)
+
+  Optional *Automatically separate after loading*. Picking a different mode
+  after separating shows a *Re-separate* button to redo the split.
+- **Multi-track mixer**: per-stem volume, stereo pan, live peak meters,
+  mute, solo, individual stem export; all stems play in sample-accurate
+  sync. One-click **Karaoke** (mute vocals) / **Acapella** (solo vocals) /
+  **Reset** presets.
+- **Player**: waveform display with click/drag seeking, play / pause / stop,
+  ±5 s skip, time display, master volume, output device picker.
+- **A–B loop**: set start/end markers at the playhead and repeat a section —
+  ideal for practicing a solo or transcribing a riff (⌘[ / ⌘] / ⌘L).
+- **Pitch & speed**: live transpose ±12 semitones and playback speed
+  0.5×–1.5× without stopping playback (playback only; exports keep the
+  original pitch and tempo).
+- **Menu bar & shortcuts**: Open ⌘O, Open Recent, Export Mix ⌘E, Export All
+  Stems ⇧⌘E, Separate ⌘D, Detect Key & BPM ⌘K, full Playback menu
+  (Space, ⌘., ⇧⌘←/→).
 - **Detect Key & BPM**: built-in DSP (no extra tools) — chromagram +
   Krumhansl–Schmuckler key estimation, onset-autocorrelation tempo with
   octave-error correction. Results are estimates; live recordings, rubato,

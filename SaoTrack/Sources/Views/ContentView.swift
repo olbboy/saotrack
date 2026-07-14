@@ -4,6 +4,8 @@ import SwiftUI
 struct ContentView: View {
     @Environment(AppState.self) private var appState
     @State private var showSetup = false
+    @State private var showYouTube = false
+    @State private var isDropTargeted = false
 
     var body: some View {
         @Bindable var appState = appState
@@ -17,6 +19,26 @@ struct ContentView: View {
 
             if appState.phase.isBusy {
                 ProgressOverlayView()
+            }
+        }
+        // Whole-window drop target so a new file can be dropped even after
+        // one is loaded (the empty state's DropZone remains as the visual cue).
+        .dropDestination(for: URL.self) { urls, _ in
+            guard !appState.phase.isBusy,
+                  let url = urls.first(where: { MediaImporter.isSupported($0) }) else {
+                return false
+            }
+            appState.loadFile(url)
+            return true
+        } isTargeted: { targeted in
+            isDropTargeted = targeted
+        }
+        .overlay {
+            if isDropTargeted, appState.media != nil {
+                RoundedRectangle(cornerRadius: 12)
+                    .strokeBorder(Color.accentColor, lineWidth: 3)
+                    .padding(4)
+                    .allowsHitTesting(false)
             }
         }
         .toolbar { toolbarContent }
@@ -88,6 +110,19 @@ struct ContentView: View {
                     Label("Open File", systemImage: "folder")
                 }
                 .help("Load another audio or video file")
+
+                Button {
+                    showYouTube.toggle()
+                } label: {
+                    Label("YouTube", systemImage: "link")
+                }
+                .popover(isPresented: $showYouTube, arrowEdge: .bottom) {
+                    YouTubeBarView()
+                        .environment(appState)
+                        .padding(16)
+                        .frame(width: 420)
+                }
+                .help("Download & load another song from a YouTube link")
 
                 ExportMenuView()
             }

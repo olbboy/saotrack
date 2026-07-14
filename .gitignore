@@ -1,5 +1,7 @@
 # XcodeGen output — regenerate with `xcodegen generate`
 *.xcodeproj
+SaoTrack/Info.plist
+SaoTrack/SaoTrack.entitlements
 
 # Xcode
 xcuserdata/

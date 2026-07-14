@@ -1,11 +1,9 @@
 import Foundation
 
-/// Runs Demucs (`htdemucs_6s`) as a Python subprocess and post-processes the
-/// six model outputs into the app's five stems: the guitar stem is summed
-/// into "other".
+/// Runs Demucs as a Python subprocess and post-processes the model outputs
+/// into the app's stems for the selected `SeparationMode` (in 5-stem mode
+/// the guitar stem is summed into "other").
 actor StemSeparationService {
-
-    static let modelName = "htdemucs_6s"
 
     struct Progress: Sendable, Equatable {
         enum Stage: Sendable, Equatable {
@@ -35,12 +33,13 @@ actor StemSeparationService {
 
     private static let tqdmPattern = try! NSRegularExpression(pattern: #"(?:^|\s)([\d.]+)%\|"#)
 
-    /// Separates `input` and returns one WAV per stem kind.
+    /// Separates `input` and returns one WAV per stem kind of `mode`.
     func separate(
         input: URL,
         sessionDirectory: URL,
         tools: ToolSet,
         useGPU: Bool,
+        mode: SeparationMode,
         progress: @Sendable @escaping (Progress) -> Void
     ) async throws -> [StemKind: URL] {
         guard let python = tools.demucsPython else {
@@ -56,11 +55,10 @@ actor StemSeparationService {
 
         let arguments = [
             "-m", "demucs.separate",
-            "-n", Self.modelName,
+            "-n", mode.modelName,
             "-d", useGPU ? "mps" : "cpu",
             "-o", outputRoot.path,
-            input.path,
-        ]
+        ] + mode.extraArguments + [input.path]
         var environment = ProcessRunner.environment(extra: [
             "PYTHONUNBUFFERED": "1",
             "TORCH_HOME": ToolLocator.torchHomeDirectory.path,
@@ -108,7 +106,8 @@ actor StemSeparationService {
         }
 
         progress(Progress(stage: .merging))
-        return try mergeOutputs(input: input, outputRoot: outputRoot, sessionDirectory: sessionDirectory)
+        return try mergeOutputs(
+            input: input, outputRoot: outputRoot, sessionDirectory: sessionDirectory, mode: mode)
     }
 
     private static func parseTqdm(_ line: String) -> Double? {
@@ -119,20 +118,22 @@ actor StemSeparationService {
         return min(1.0, percent / 100.0)
     }
 
-    /// demucs writes `<root>/htdemucs_6s/<track>/{vocals,drums,bass,guitar,piano,other}.wav`.
-    /// Moves the five app stems into `<session>/stems/` with guitar+other summed.
+    /// demucs writes `<root>/<model>/<track>/<stem>.wav`. Moves the mode's
+    /// stems into `<session>/stems/`; in 5-stem mode guitar+other are summed,
+    /// in 2-stem mode the model's "no_vocals" becomes "instrumental".
     private func mergeOutputs(
         input: URL,
         outputRoot: URL,
-        sessionDirectory: URL
+        sessionDirectory: URL,
+        mode: SeparationMode
     ) throws -> [StemKind: URL] {
         let trackName = input.deletingPathExtension().lastPathComponent
         var modelDirectory = outputRoot
-            .appendingPathComponent(Self.modelName, isDirectory: true)
+            .appendingPathComponent(mode.modelName, isDirectory: true)
             .appendingPathComponent(trackName, isDirectory: true)
         if !FileManager.default.fileExists(atPath: modelDirectory.path) {
             // Defensive: locate the single track folder demucs actually created.
-            let modelRoot = outputRoot.appendingPathComponent(Self.modelName, isDirectory: true)
+            let modelRoot = outputRoot.appendingPathComponent(mode.modelName, isDirectory: true)
             let children = (try? FileManager.default.contentsOfDirectory(
                 at: modelRoot, includingPropertiesForKeys: nil)) ?? []
             guard let found = children.first(where: { $0.hasDirectoryPath }) else {
@@ -149,10 +150,19 @@ actor StemSeparationService {
             modelDirectory.appendingPathComponent("\(name).wav")
         }
 
+        func moveStem(named sourceName: String, to destination: URL) throws {
+            let source = modelStem(sourceName)
+            guard FileManager.default.fileExists(atPath: source.path) else {
+                throw AppError.separationFailed("The \"\(sourceName)\" stem is missing from the Demucs output.")
+            }
+            try FileManager.default.moveItem(at: source, to: destination)
+        }
+
         var stems: [StemKind: URL] = [:]
-        for kind in StemKind.allCases {
+        for kind in mode.stemKinds {
             let destination = stemsDirectory.appendingPathComponent("\(kind.rawValue).wav")
-            if kind == .other {
+            switch kind {
+            case .other where mode == .fiveStems:
                 let guitar = modelStem("guitar")
                 let other = modelStem("other")
                 if FileManager.default.fileExists(atPath: guitar.path),
@@ -163,12 +173,10 @@ actor StemSeparationService {
                 } else {
                     throw AppError.separationFailed("The \"other\" stem is missing from the Demucs output.")
                 }
-            } else {
-                let source = modelStem(kind.rawValue)
-                guard FileManager.default.fileExists(atPath: source.path) else {
-                    throw AppError.separationFailed("The \"\(kind.rawValue)\" stem is missing from the Demucs output.")
-                }
-                try FileManager.default.moveItem(at: source, to: destination)
+            case .instrumental:
+                try moveStem(named: "no_vocals", to: destination)
+            default:
+                try moveStem(named: kind.rawValue, to: destination)
             }
             stems[kind] = destination
         }

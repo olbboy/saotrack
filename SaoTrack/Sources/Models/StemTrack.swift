@@ -1,13 +1,16 @@
 import Foundation
 
-/// The five stem kinds produced by separation. Demucs' `htdemucs_6s` model
-/// emits a sixth stem (guitar) which is summed into `other` after separation.
+/// The stem kinds the app can produce. Which subset a separation run yields
+/// depends on the selected `SeparationMode`; in 5-stem mode Demucs'
+/// `htdemucs_6s` guitar output is summed into `other`.
 enum StemKind: String, CaseIterable, Identifiable, Sendable {
     case vocals
     case drums
     case bass
     case piano
     case other
+    /// Everything except the vocals (2-stem mode only).
+    case instrumental
 
     var id: String { rawValue }
 
@@ -20,6 +23,7 @@ enum StemKind: String, CaseIterable, Identifiable, Sendable {
         case .bass: return "waveform.path"
         case .piano: return "pianokeys"
         case .other: return "guitars"
+        case .instrumental: return "music.note.list"
         }
     }
 }
@@ -32,6 +36,8 @@ struct StemTrack: Identifiable, Sendable {
     let name: String
     let url: URL
     var volume: Float = 1.0
+    /// Stereo pan, -1 (full left) … 0 (center) … +1 (full right).
+    var pan: Float = 0
     var isMuted = false
     var isSoloed = false
 
